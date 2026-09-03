@@ -1,0 +1,11 @@
+{
+  "name": "Onion Quality Grading",
+  "short_name": "OnionGrade",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f4ee",
+  "theme_color": "#22b14c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

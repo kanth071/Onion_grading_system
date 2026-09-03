@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Onion Quality Grading</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#22b14c" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="homeBackBtn" class="icon-btn back-btn hidden" title="Back to Home">←</button>
+      <div class="brand">🧅 Onion Quality AI</div>
+    </div>
+    <button id="apiSettingsBtn" class="icon-btn" title="Server settings">⚙</button>
+  </header>
+
+  <main id="app"></main>
+
+  <nav class="bottomnav">
+    <button data-nav="camera" class="nav-btn active">📷<span>Inspect</span></button>
+    <button data-nav="history" class="nav-btn">📋<span>History</span></button>
+    <button data-nav="settings" class="nav-btn">🛠<span>Grading</span></button>
+  </nav>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

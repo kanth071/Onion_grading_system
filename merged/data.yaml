@@ -1,0 +1,15 @@
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 4
+names: ['healthy', 'damaged', 'rotten', 'sprouted']
+
+# Onion Grading dataset - merged, cleaned, and balanced. See README_DATASET_CARD.md
+# for full provenance, the class-balancing method, and important caveats
+# (especially: 'sprouted' rests on only 3 real source photos).
+#
+# "undersized" is intentionally NOT a class - it's a size measurement, not a
+# visual defect any source dataset labels. Handle it downstream: after
+# detection, compare each box's real-world diameter (calibrated against a
+# reference object or fixed camera height) to a threshold.

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This app's FastAPI backend runs as a self-hosted server on the local
+  network (default http://10.0.2.2:8000 for the emulator, or a LAN IP
+  entered via the server-settings dialog) and doesn't use HTTPS. Android 9+
+  blocks plaintext HTTP by default, so cleartext is allowed here for that
+  local/dev use case. Tighten this (e.g. restrict to specific domains) if
+  the backend ever moves behind a public/HTTPS endpoint.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
