@@ -30,9 +30,6 @@ DEFAULT_SETTINGS = {
         "URS": -20.0,
     },
 
-    # --- Size / "undersized" calibration (optional, off unless caller supplies px_per_cm) ---
-    "undersized_diameter_cm": 4.0,  # onions with estimated diameter below this are "undersized"
-
     "detection_confidence_threshold": 0.25,  # YOLO box confidence cutoff to even count a detection
     "detection_iou_threshold": 0.45,
 }

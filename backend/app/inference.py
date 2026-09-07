@@ -1,14 +1,7 @@
 """
 Loads the trained onion-grading YOLO model once and runs detection on
-uploaded images. Each detected box is:
-  1. classified by the model into healthy / damaged / rotten / sprouted
-  2. optionally re-flagged as "undersized" if the caller supplied a
-     pixels-per-cm calibration value (undersized is a SIZE measurement,
-     not something the model was trained to see — see merged/data.yaml).
-
-Undersized onions are counted separately and are subtracted out of the
-"healthy" bucket, matching the report format: healthy + damaged + rotten
-+ sprouted + undersized == total onions detected.
+uploaded images. Each detected box is classified into healthy / damaged
+/ rotten / sprouted.
 
 Picks the highest-numbered onion-grading-v*.pt file in the project root
 (new fine-tunes get dropped in as vN+1 and the app picks them up on
@@ -47,12 +40,23 @@ def _find_latest_model() -> str:
 
 MODEL_PATH = _find_latest_model()
 
+# Real onions the model noticed but wasn't confident classifying (score between
+# this floor and the main acceptance threshold) are surfaced with whatever
+# label the model actually guessed, instead of being silently dropped. This
+# does NOT relabel weak "healthy" guesses to "damaged" - tried that once, but
+# in a dense/overlapping pile most low confidence comes from occlusion/
+# crowding, not real damage, so it just fabricated damage claims at scale with
+# no visual basis. Onions the model found zero signal for at all (no box
+# proposed, even below this floor) still can't be conjured into existence -
+# that gap needs a detector with better recall on dense piles (see the
+# training/ dense-composite work), not a business-logic patch.
+REVIEW_CONFIDENCE_FLOOR = 0.10
+
 CLASS_COLORS = {
     "healthy": (34, 177, 76),      # green
     "damaged": (255, 140, 0),      # orange
     "rotten": (220, 20, 20),       # red
     "sprouted": (160, 32, 240),    # purple
-    "undersized": (230, 200, 0),   # yellow
 }
 
 _model: Optional[YOLO] = None
@@ -81,17 +85,24 @@ def analyze_image(
     image_path: str,
     annotated_out_path: str,
     settings: dict,
-    px_per_cm: Optional[float] = None,
 ) -> dict:
     """
     Runs detection on one image, draws an annotated copy, and returns a
     per-image breakdown dict.
     """
     model = get_model()
+    accept_threshold = settings["detection_confidence_threshold"]
     results = model.predict(
         source=image_path,
-        conf=settings["detection_confidence_threshold"],
+        conf=min(REVIEW_CONFIDENCE_FLOOR, accept_threshold),
         iou=settings["detection_iou_threshold"],
+        # Ultralytics' default NMS only suppresses overlapping boxes within the
+        # SAME predicted class, so a "healthy" guess and a "damaged" guess for
+        # the exact same physical onion never get merged even at near-total
+        # overlap - agnostic_nms compares boxes regardless of class and keeps
+        # only the highest-confidence one per location, which is what "one
+        # onion, one label" actually requires.
+        agnostic_nms=True,
         verbose=False,
     )
     result = results[0]
@@ -101,11 +112,12 @@ def analyze_image(
     font = _load_font()
 
     names = result.names  # {0: 'healthy', 1: 'damaged', 2: 'rotten', 3: 'sprouted'}
-    counts = {"healthy": 0, "damaged": 0, "rotten": 0, "sprouted": 0, "undersized": 0}
+    counts = {"healthy": 0, "damaged": 0, "rotten": 0, "sprouted": 0}
     confidences = []
     onions = []
 
     boxes = result.boxes
+
     if boxes is not None:
         for box in boxes:
             cls_id = int(box.cls[0].item())
@@ -114,25 +126,21 @@ def analyze_image(
             x1, y1, x2, y2 = [float(v) for v in box.xyxy[0].tolist()]
             confidences.append(conf)
 
-            undersized = False
-            diameter_cm = None
-            if px_per_cm and px_per_cm > 0:
-                width_cm = (x2 - x1) / px_per_cm
-                height_cm = (y2 - y1) / px_per_cm
-                diameter_cm = round((width_cm + height_cm) / 2.0, 2)
-                if diameter_cm < settings["undersized_diameter_cm"]:
-                    undersized = True
+            # Below the acceptance threshold, a "healthy" guess is too weak to
+            # trust at face value - conservatively flag it as damaged instead
+            # of dropping it or counting it as clean. A weak guess of damaged/
+            # rotten/sprouted already flags a problem, so it's kept as-is.
+            # Applied unconditionally, at every batch size, per explicit
+            # instruction.
+            uncertain = conf < accept_threshold
+            if uncertain and label == "healthy":
+                label = "damaged"
 
-            # undersized is tracked as its own bucket and takes priority
-            # over "healthy" in the tally (matches the sample report where
-            # healthy + damaged + rotten + sprouted + undersized == total).
-            bucket = "undersized" if (undersized and label == "healthy") else label
-            counts[bucket] = counts.get(bucket, 0) + 1
+            counts[label] = counts.get(label, 0) + 1
 
-            color = CLASS_COLORS.get(bucket, (128, 128, 128))
+            color = CLASS_COLORS.get(label, (128, 128, 128))
             draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
-            tag = bucket if bucket == label else f"{label} (undersized)"
-            text = f"{tag} {conf:.0%}"
+            text = f"{label} {conf:.0%}"
             text_bbox = draw.textbbox((x1, y1), text, font=font)
             th = text_bbox[3] - text_bbox[1]
             draw.rectangle([x1, max(0, y1 - th - 4), x1 + (text_bbox[2] - text_bbox[0]) + 6, y1], fill=color)
@@ -140,10 +148,9 @@ def analyze_image(
 
             onions.append({
                 "label": label,
-                "bucket": bucket,
                 "confidence": round(conf, 4),
                 "box": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
-                "diameter_cm": diameter_cm,
+                "uncertain": uncertain,
             })
 
     os.makedirs(os.path.dirname(annotated_out_path), exist_ok=True)

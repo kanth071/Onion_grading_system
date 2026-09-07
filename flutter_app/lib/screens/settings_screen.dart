@@ -21,7 +21,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _grade1 = TextEditingController();
   final _grade2 = TextEditingController();
   final _lowConf = TextEditingController();
-  final _undersizedCm = TextEditingController();
   final _basePrice = TextEditingController();
   final _adjG1 = TextEditingController();
   final _adjG2 = TextEditingController();
@@ -41,7 +40,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _grade1.text = '${cfg['grade1_min_pct']}';
         _grade2.text = '${cfg['grade2_min_pct']}';
         _lowConf.text = '${cfg['low_confidence_threshold']}';
-        _undersizedCm.text = '${cfg['undersized_diameter_cm']}';
         _basePrice.text = '${cfg['base_price_per_quintal']}';
         final adj = cfg['grade_price_adjustment_pct'] as Map<String, dynamic>;
         _adjG1.text = '${adj['Grade 1']}';
@@ -60,7 +58,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'grade1_min_pct': double.tryParse(_grade1.text) ?? 80.0,
         'grade2_min_pct': double.tryParse(_grade2.text) ?? 60.0,
         'low_confidence_threshold': double.tryParse(_lowConf.text) ?? 0.65,
-        'undersized_diameter_cm': double.tryParse(_undersizedCm.text) ?? 4.0,
         'base_price_per_quintal': double.tryParse(_basePrice.text) ?? 2500.0,
         'grade_price_adjustment_pct': {
           'Grade 1': double.tryParse(_adjG1.text) ?? 10.0,
@@ -128,7 +125,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: TextStyle(color: AppColors.muted, fontSize: 12)),
                       const SizedBox(height: 10),
                       _numField('Low-confidence threshold (flags manual review)', _lowConf),
-                      _numField('Undersized diameter threshold (cm)', _undersizedCm),
                     ],
                   ),
                 ),

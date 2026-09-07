@@ -60,7 +60,6 @@ async def create_inspection(
     files: List[UploadFile] = File(...),
     mode: str = Form("single"),
     batch_label: Optional[str] = Form(None),
-    px_per_cm: Optional[float] = Form(None),
 ):
     if not files:
         raise HTTPException(400, "At least one image is required.")
@@ -74,7 +73,7 @@ async def create_inspection(
     os.makedirs(inspection_orig_dir, exist_ok=True)
     os.makedirs(inspection_annot_dir, exist_ok=True)
 
-    totals = {"healthy": 0, "damaged": 0, "rotten": 0, "sprouted": 0, "undersized": 0}
+    totals = {"healthy": 0, "damaged": 0, "rotten": 0, "sprouted": 0}
     all_confidences = []
     images_meta = []
 
@@ -82,14 +81,20 @@ async def create_inspection(
         ext = os.path.splitext(upload.filename or "")[1] or ".jpg"
         safe_name = f"img_{idx}{ext}"
         orig_path = os.path.join(inspection_orig_dir, safe_name)
-        annot_path = os.path.join(inspection_annot_dir, safe_name)
+        # Annotated output is always saved as .jpg regardless of the upload's
+        # original format - browsers/Flutter's image decoder can't reliably
+        # display some source formats (e.g. AVIF isn't supported by Flutter's
+        # bundled image codec at all), so re-encoding to a universally
+        # supported format here avoids a broken image on the results screen.
+        annot_name = f"img_{idx}.jpg"
+        annot_path = os.path.join(inspection_annot_dir, annot_name)
 
         content = await upload.read()
         with open(orig_path, "wb") as f:
             f.write(content)
 
         try:
-            result = analyze_image(orig_path, annot_path, cfg, px_per_cm=px_per_cm)
+            result = analyze_image(orig_path, annot_path, cfg)
         except Exception as exc:
             raise HTTPException(500, f"Detection failed on image {idx} ({upload.filename}): {exc}")
 
@@ -101,7 +106,7 @@ async def create_inspection(
         images_meta.append({
             "filename": upload.filename,
             "original_url": f"/static/original/{inspection_id}/{safe_name}",
-            "annotated_url": f"/static/annotated/{inspection_id}/{safe_name}",
+            "annotated_url": f"/static/annotated/{inspection_id}/{annot_name}",
             "annotated_abs_path": annot_path,
             "total_onions": result["total_onions"],
             "counts": result["counts"],
@@ -109,11 +114,29 @@ async def create_inspection(
         })
 
     total_onions = sum(totals.values())
-    grade_a_pct = round(100 * totals["healthy"] / total_onions, 1) if total_onions else 0.0
-    grade = grading.compute_grade(grade_a_pct, cfg)
     avg_confidence = round(sum(all_confidences) / len(all_confidences), 4) if all_confidences else 0.0
-    low_confidence = grading.is_low_confidence(avg_confidence, cfg)
-    price = grading.estimate_price(grade, cfg)
+
+    if total_onions == 0:
+        # Zero detections is not the same thing as "URS" - URS means onions
+        # were found and graded below standard. Silently running 0/0 through
+        # compute_grade would report a confident-looking URS grade and price
+        # for a photo the model found nothing in, which is misleading.
+        grade_a_pct = 0.0
+        grade = grading.NO_DETECTION
+        low_confidence = False
+        price = {
+            "base_price_per_quintal": cfg["base_price_per_quintal"],
+            "grade_adjustment_pct": 0.0,
+            "estimated_price_per_quintal": None,
+            "note": "No onions were detected in the submitted photo(s), so no price can be estimated.",
+        }
+        majority = None
+    else:
+        grade_a_pct = round(100 * totals["healthy"] / total_onions, 1)
+        grade = grading.compute_grade(grade_a_pct, cfg)
+        low_confidence = grading.is_low_confidence(avg_confidence, cfg)
+        price = grading.estimate_price(grade, cfg)
+        majority = grading.majority_class(totals, total_onions)
 
     record = {
         "id": inspection_id,
@@ -125,10 +148,13 @@ async def create_inspection(
         **totals,
         "grade_a_pct": grade_a_pct,
         "grade": grade,
+        "majority_class": majority[0] if majority else None,
+        "majority_class_pct": majority[1] if majority else None,
         "avg_confidence": avg_confidence,
         "low_confidence": low_confidence,
-        "estimated_price_per_quintal": price["estimated_price_per_quintal"],
-        "undersized_calibrated": bool(px_per_cm),
+        # DB column is NOT NULL; None (no-detection case) stores as 0.0 there
+        # and is restored as None below from grade == NO_DETECTION instead.
+        "estimated_price_per_quintal": price["estimated_price_per_quintal"] or 0.0,
         "settings_json": cfg,
         "images_json": images_meta,
     }

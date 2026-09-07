@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Talks to the FastAPI backend (see backend/app/main.py). Base URL is
@@ -12,7 +14,12 @@ class ApiClient {
   static final ApiClient instance = ApiClient._();
 
   static const _prefKey = 'api_base_url';
-  static const defaultBaseUrl = 'http://10.0.2.2:8000'; // Android emulator -> host loopback
+  // 10.0.2.2 is the Android emulator's special alias for the host machine's
+  // loopback - real localhost doesn't reach the host from inside that VM.
+  // Every other platform (Windows/desktop, iOS simulator, web) just uses
+  // localhost directly.
+  static String get defaultBaseUrl =>
+      (!kIsWeb && Platform.isAndroid) ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000';
 
   String _baseUrl = defaultBaseUrl;
   String get baseUrl => _baseUrl;
@@ -43,17 +50,19 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> uploadInspection({
-    required List<File> files,
+    required List<XFile> files,
     required String mode,
     String? batchLabel,
-    double? pxPerCm,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/inspections'));
     request.fields['mode'] = mode;
     if (batchLabel != null && batchLabel.isNotEmpty) request.fields['batch_label'] = batchLabel;
-    if (pxPerCm != null) request.fields['px_per_cm'] = pxPerCm.toString();
     for (final f in files) {
-      request.files.add(await http.MultipartFile.fromPath('files', f.path));
+      // fromPath relies on dart:io and throws UnsupportedError on web;
+      // fromBytes works identically on every platform since XFile.readAsBytes()
+      // is itself already cross-platform.
+      final bytes = await f.readAsBytes();
+      request.files.add(http.MultipartFile.fromBytes('files', bytes, filename: f.name));
     }
     final streamed = await request.send().timeout(const Duration(minutes: 3));
     final res = await http.Response.fromStream(streamed);

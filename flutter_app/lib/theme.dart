@@ -6,7 +6,6 @@ class AppColors {
   static const orange = Color(0xFFFF8C00);
   static const red = Color(0xFFDC1414);
   static const purple = Color(0xFFA020F0);
-  static const yellow = Color(0xFFD4B800);
   static const bg = Color(0xFFF7F4EE);
   static const border = Color(0xFFE7E2D6);
   static const muted = Color(0xFF6B6F63);
@@ -22,8 +21,6 @@ class AppColors {
         return red;
       case 'sprouted':
         return purple;
-      case 'undersized':
-        return yellow;
       default:
         return muted;
     }

@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../api_client.dart';
 import '../theme.dart';
@@ -9,17 +9,15 @@ import '../widgets/common.dart';
 import 'results_screen.dart';
 
 class ProcessingScreen extends StatefulWidget {
-  final List<File> files;
+  final List<XFile> files;
   final String mode;
   final String? batchLabel;
-  final double? pxPerCm;
 
   const ProcessingScreen({
     super.key,
     required this.files,
     required this.mode,
     this.batchLabel,
-    this.pxPerCm,
   });
 
   @override
@@ -53,7 +51,6 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         files: widget.files,
         mode: widget.mode,
         batchLabel: widget.batchLabel,
-        pxPerCm: widget.pxPerCm,
       );
       _timer?.cancel();
       if (!mounted) return;

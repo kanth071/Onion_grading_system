@@ -7,7 +7,6 @@ const state = {
   screen: "camera",
   files: [],               // File[] — 1 photo behaves as single, 2+ as batch, no upfront mode choice
   batchLabel: "",
-  pxPerCm: "",
   lastResult: null,
   history: [],
 };
@@ -45,7 +44,6 @@ function go(screen, opts = {}) {
   if (screen === "camera") {
     state.files = [];
     state.batchLabel = "";
-    state.pxPerCm = "";
   }
   setNavActive(screen === "processing" || screen === "results" ? "camera" : screen);
   document.getElementById("homeBackBtn").classList.toggle("hidden", screen === "camera");
@@ -96,19 +94,19 @@ function renderCamera() {
       real inspection photos, not glossy product/catalog photography, and won't read those reliably.
     </div>
 
+    <div class="card process-strip">
+      <div class="process-step"><span class="process-icon">📷</span><span>Capture Image</span></div>
+      <div class="process-step"><span class="process-icon">🤖</span><span>AI Detects Onions</span></div>
+      <div class="process-step"><span class="process-icon">📊</span><span>Quality Analysis</span></div>
+      <div class="process-step"><span class="process-icon">🏆</span><span>Final Grade</span></div>
+    </div>
+
     <div class="card" id="photosCard" style="margin-top:14px; display:none;">
       <label for="batchLabel">Batch ID / label (optional)</label>
       <input type="text" id="batchLabel" placeholder="e.g. ON-2026-001" value="${state.batchLabel}" />
       <div class="thumbs" id="thumbs"></div>
       <button class="btn primary block" id="btnAnalyze">Analyze</button>
     </div>
-
-    <details class="calib-details">
-      <summary>Size calibration (optional)</summary>
-      <label for="pxPerCm">Pixels per cm</label>
-      <input type="number" id="pxPerCm" placeholder="Leave blank to skip undersized detection" value="${state.pxPerCm}" />
-      <p class="muted">Place a known reference object in-frame and enter its pixel width ÷ real width (cm) to enable the "undersized" size check.</p>
-    </details>
 
     <input type="file" id="fileInputCamera" accept="image/*" capture="environment" class="hidden-file-input" />
     <input type="file" id="fileInputGallery" accept="image/*" class="hidden-file-input" multiple />
@@ -118,8 +116,6 @@ function renderCamera() {
   const galleryInput = document.getElementById("fileInputGallery");
   document.getElementById("btnCamera").onclick = () => cameraInput.click();
   document.getElementById("btnGallery").onclick = () => galleryInput.click();
-
-  document.getElementById("pxPerCm").addEventListener("input", (e) => state.pxPerCm = e.target.value);
 
   const photosCard = document.getElementById("photosCard");
   const thumbs = document.getElementById("thumbs");
@@ -177,7 +173,6 @@ async function runAnalysis() {
     state.files.forEach(f => form.append("files", f));
     form.append("mode", state.files.length > 1 ? "batch" : "single");
     if (state.batchLabel) form.append("batch_label", state.batchLabel);
-    if (state.pxPerCm) form.append("px_per_cm", state.pxPerCm);
 
     const result = await api("/api/inspections", { method: "POST", body: form });
     clearInterval(tick);
@@ -218,11 +213,12 @@ const GRADE_LABELS = {
   "Grade 1": "Grade 1 — High Quality",
   "Grade 2": "Grade 2 — Acceptable, Lower Quality",
   "URS": "URS — Below Standard (Unfit for Sale)",
+  "NO_DETECTION": "No Onions Detected",
 };
 function gradeLabel(grade) { return GRADE_LABELS[grade] || grade; }
 
-const DEFECT_CLASSES = ["damaged", "rotten", "sprouted", "undersized"];
-const DEFECT_LABELS = { damaged: "Damaged", rotten: "Rotten", sprouted: "Sprouted", undersized: "Undersized" };
+const DEFECT_CLASSES = ["damaged", "rotten", "sprouted"];
+const DEFECT_LABELS = { damaged: "Damaged", rotten: "Rotten", sprouted: "Sprouted" };
 // Answers "why did this batch get this grade?" instead of a bare "Below Standard: X%".
 function dominantDefect(r) {
   const total = r.total_onions || 0;
@@ -242,31 +238,72 @@ function renderResults() {
   const total = Math.max(r.total_onions, 1);
   const rows = [
     ["healthy", "Healthy"], ["damaged", "Damaged"], ["rotten", "Rotten"],
-    ["sprouted", "Sprouted"], ["undersized", "Undersized"],
+    ["sprouted", "Sprouted"],
   ];
 
   const breakdownHtml = rows.map(([key, label]) => {
     const count = r[key] || 0;
     const pct = Math.round((count / total) * 1000) / 10;
+    const icon = key === "healthy"
+      ? `<span class="issue-icon ok">✓</span>`
+      : `<span class="issue-icon warn">⚠</span>`;
     return `
       <div class="breakdown-row">
-        <span class="breakdown-label"><span class="dot ${key}"></span>${label}</span>
-        <span><span class="breakdown-count">${count}</span><span class="breakdown-pct">${pct}%</span></span>
+        <div class="breakdown-top">
+          <span class="breakdown-label">${icon}<span class="dot ${key}"></span>${label}</span>
+          <span><span class="breakdown-count">${count}</span><span class="breakdown-pct">${pct}%</span></span>
+        </div>
+        <div class="breakdown-bar"><div class="breakdown-fill ${key}" style="width:${pct}%"></div></div>
       </div>`;
   }).join("");
 
-  const gallery = (r.images_json || []).map(img =>
-    `<img src="${state.apiBase}${img.annotated_url}" alt="annotated" />`
-  ).join("");
+  // Each photo's own healthy/damaged/rotten/sprouted counts, plus a
+  // fit-for-sale verdict for that specific photo — not just the batch total.
+  const gallery = (r.images_json || []).map((img, i) => {
+    const counts = img.counts || {};
+    const imgTotal = Math.max(img.total_onions || 0, 1);
+    const chips = rows.map(([key, label]) => {
+      const c = counts[key] || 0;
+      return `<span class="chip"><span class="dot ${key}"></span>${label}: ${c}</span>`;
+    }).join("");
+    const defectCount = (counts.damaged || 0) + (counts.rotten || 0) + (counts.sprouted || 0);
+    const unfit = (img.total_onions || 0) > 0 && defectCount > (counts.healthy || 0);
+    const verdict = (img.total_onions || 0) > 0
+      ? (unfit
+          ? `<span class="verdict-tag unfit">⚠ Not fit for sale</span>`
+          : `<span class="verdict-tag fit">✓ Fit for sale</span>`)
+      : `<span class="verdict-tag unfit">No onions detected</span>`;
+    return `
+      <div class="image-result-card">
+        <img src="${state.apiBase}${img.annotated_url}" alt="annotated photo ${i + 1}" />
+        <div class="image-result-head">
+          <span>Photo ${i + 1} &middot; ${img.total_onions} onion(s)</span>
+          ${verdict}
+        </div>
+        <div class="image-chips">${chips}</div>
+      </div>`;
+  }).join("");
 
   const confClass = r.low_confidence ? "low" : "ok";
   const confPct = Math.round(r.avg_confidence * 100);
-  const defect = r.grade !== "Grade 1" ? dominantDefect(r) : null;
+  const noDetection = r.grade === "NO_DETECTION";
+  const defect = (!noDetection && r.grade !== "Grade 1") ? dominantDefect(r) : null;
 
-  app.innerHTML = `
-    <h1>Inspection Result</h1>
+  const summaryCard = noDetection ? `
+    <div class="card">
+      <div class="grade-badge urs">
+        ⚠ No Onions Detected
+        <div class="grade-sub">The model found nothing to grade in this photo</div>
+      </div>
+      <p class="muted" style="text-align:center;">Retake the photo closer, with better lighting, so the batch fills the frame — then try again.</p>
+    </div>` : `
     <div class="card">
       <p class="muted">ID: ${r.id}<br/>${r.num_images} image(s) analyzed &middot; ${r.total_onions} onions detected</p>
+
+      <div class="quality-score">
+        <div class="quality-score-top"><span>Overall Quality Score</span><strong>${r.grade_a_pct}%</strong></div>
+        <div class="breakdown-bar quality-score-bar"><div class="breakdown-fill healthy" style="width:${r.grade_a_pct}%"></div></div>
+      </div>
 
       <h2>Quality Breakdown</h2>
       ${breakdownHtml}
@@ -278,29 +315,27 @@ function renderResults() {
         <div class="grade-sub">Grade-A (healthy): ${r.grade_a_pct}%</div>
       </div>
       ${defect ? `<p class="muted" style="text-align:center; margin-top:8px;">Primary factor: <strong>${defect.label} (${defect.pct}%)</strong></p>` : ""}
+      ${r.majority_class ? `<p class="muted" style="text-align:center;">Majority class: <strong>${r.majority_class.charAt(0).toUpperCase() + r.majority_class.slice(1)} (${r.majority_class_pct}%)</strong></p>` : ""}
       <p style="text-align:center;">
         <span class="confidence-pill ${confClass}">AI Confidence ${confPct}%</span>
       </p>
       ${r.low_confidence ? `<div class="warn-box">⚠️ Low confidence — manual verification recommended.</div>` : ""}
-      ${!r.undersized_calibrated ? `<p class="muted" style="text-align:center;">Undersized check not calibrated for this inspection.</p>` : ""}
     </div>
 
     <div class="card">
       <h2>Estimated Price</h2>
       <p style="font-size:22px; font-weight:800;">₹ ${r.estimated_price_per_quintal} <span class="muted" style="font-weight:400; font-size:13px;">/ quintal</span></p>
       <p class="muted">${r.pricing?.note || "Demo/configurable pricing."}</p>
-    </div>
+    </div>`;
+
+  app.innerHTML = `
+    <h1>Inspection Result</h1>
+    ${summaryCard}
 
     <div class="card">
-      <h2>Annotated Images</h2>
-      <div class="legend">
-        <span><span class="dot healthy"></span>Healthy</span>
-        <span><span class="dot damaged"></span>Damaged</span>
-        <span><span class="dot rotten"></span>Rotten</span>
-        <span><span class="dot sprouted"></span>Sprouted</span>
-        <span><span class="dot undersized"></span>Undersized</span>
-      </div>
-      <div class="gallery">${gallery}</div>
+      <h2>Per-Photo Detection</h2>
+      <p class="muted" style="margin:-4px 0 12px;">Each photo is analyzed on its own — boxes, counts, and a fit-for-sale check.</p>
+      <div class="image-results">${gallery}</div>
     </div>
 
     <button class="btn primary block" id="btnDownload">⬇ Download PDF Report</button>
@@ -313,33 +348,87 @@ function renderResults() {
   document.getElementById("btnAnother").onclick = () => go("camera");
 }
 
+function formatHistDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "-";
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Today";
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+}
+
 async function renderHistory() {
   app.innerHTML = `<h1>Inspection History</h1><div class="card"><div class="spinner"></div></div>`;
+  let list;
   try {
-    const list = await api("/api/inspections?limit=100");
-    if (!list.length) {
-      app.innerHTML = `
-        <h1>Inspection History</h1>
-        <div class="empty-state"><span class="emoji">📭</span>No inspections yet.</div>
-      `;
-      return;
-    }
-    const rows = list.map(r => `
-      <tr data-id="${r.id}">
-        <td>${r.id.replace("ON-", "")}</td>
-        <td>${r.batch_label || "-"}</td>
-        <td>${r.grade_a_pct}%</td>
-        <td><span class="grade-chip ${gradeClass(r.grade)}">${r.grade}</span></td>
-      </tr>`).join("");
+    list = await api("/api/inspections?limit=100");
+  } catch (err) {
+    app.innerHTML = `<h1>Inspection History</h1><div class="warn-box">Could not load history: ${err.message}. Is the backend running at ${state.apiBase}?</div>`;
+    return;
+  }
+  if (!list.length) {
     app.innerHTML = `
       <h1>Inspection History</h1>
-      <div class="card">
-        <table class="hist">
-          <thead><tr><th>ID</th><th>Batch</th><th>Grade-A</th><th>Grade</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      <div class="empty-state"><span class="emoji">📭</span>No inspections yet.</div>
     `;
+    return;
+  }
+
+  const counts = { "Grade 1": 0, "Grade 2": 0, "URS": 0, "NO_DETECTION": 0 };
+  list.forEach(r => { counts[r.grade] = (counts[r.grade] || 0) + 1; });
+
+  app.innerHTML = `
+    <h1>Inspection History</h1>
+
+    <div class="stats-row">
+      <div class="stat-chip"><strong>${list.length}</strong><span>Total Batches</span></div>
+      <div class="stat-chip g1"><strong>${counts["Grade 1"]}</strong><span>Grade 1</span></div>
+      <div class="stat-chip g2"><strong>${counts["Grade 2"]}</strong><span>Grade 2</span></div>
+      <div class="stat-chip urs"><strong>${counts["URS"]}</strong><span>URS</span></div>
+    </div>
+
+    <div class="card" style="padding:12px;">
+      <input type="text" id="histSearch" placeholder="🔍 Search Batch ID…" style="margin-bottom:8px;" />
+      <select id="histFilter">
+        <option value="all">All Grades</option>
+        <option value="Grade 1">Grade 1</option>
+        <option value="Grade 2">Grade 2</option>
+        <option value="URS">URS</option>
+        <option value="NO_DETECTION">No Detection</option>
+      </select>
+    </div>
+
+    <div class="card" style="padding:0;">
+      <table class="hist">
+        <thead><tr><th>Date</th><th>ID</th><th>Quality</th><th>Grade</th></tr></thead>
+        <tbody id="histRows"></tbody>
+      </table>
+      <p class="muted" id="histEmpty" style="display:none; text-align:center; padding:16px;">No matching inspections.</p>
+    </div>
+  `;
+
+  const tbody = document.getElementById("histRows");
+  const emptyMsg = document.getElementById("histEmpty");
+  const searchInput = document.getElementById("histSearch");
+  const filterSelect = document.getElementById("histFilter");
+
+  function renderRows() {
+    const q = searchInput.value.trim().toLowerCase();
+    const gradeFilter = filterSelect.value;
+    const filtered = list.filter(r => {
+      if (gradeFilter !== "all" && r.grade !== gradeFilter) return false;
+      if (q && !r.id.toLowerCase().includes(q) && !(r.batch_label || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+    tbody.innerHTML = filtered.map(r => `
+      <tr data-id="${r.id}">
+        <td>${formatHistDate(r.created_at)}</td>
+        <td>${r.id.replace("ON-", "")}${r.batch_label ? `<br/><span class="muted" style="font-size:11px;">${r.batch_label}</span>` : ""}</td>
+        <td>${r.grade_a_pct}%</td>
+        <td><span class="grade-chip ${gradeClass(r.grade)}">${r.grade === "NO_DETECTION" ? "No Detection" : r.grade}</span></td>
+      </tr>`).join("");
+    emptyMsg.style.display = filtered.length ? "none" : "block";
+    tbody.parentElement.style.display = filtered.length ? "table" : "none";
+
     document.querySelectorAll("table.hist tbody tr").forEach(tr => {
       tr.addEventListener("click", async () => {
         const id = tr.dataset.id;
@@ -352,9 +441,11 @@ async function renderHistory() {
         go("results");
       });
     });
-  } catch (err) {
-    app.innerHTML = `<h1>Inspection History</h1><div class="warn-box">Could not load history: ${err.message}. Is the backend running at ${state.apiBase}?</div>`;
   }
+
+  searchInput.addEventListener("input", renderRows);
+  filterSelect.addEventListener("change", renderRows);
+  renderRows();
 }
 
 async function renderSettings() {
@@ -388,9 +479,6 @@ async function renderSettings() {
 
       <label>Low-confidence threshold (flags manual review)</label>
       <input type="number" step="0.01" id="low_confidence_threshold" value="${cfg.low_confidence_threshold}" />
-
-      <label>Undersized diameter threshold (cm)</label>
-      <input type="number" step="0.1" id="undersized_diameter_cm" value="${cfg.undersized_diameter_cm}" />
     </div>
 
     <div class="card">
@@ -421,7 +509,6 @@ async function renderSettings() {
       grade1_min_pct: parseFloat(document.getElementById("grade1_min_pct").value),
       grade2_min_pct: parseFloat(document.getElementById("grade2_min_pct").value),
       low_confidence_threshold: parseFloat(document.getElementById("low_confidence_threshold").value),
-      undersized_diameter_cm: parseFloat(document.getElementById("undersized_diameter_cm").value),
       base_price_per_quintal: parseFloat(document.getElementById("base_price_per_quintal").value),
       grade_price_adjustment_pct: {
         "Grade 1": parseFloat(document.getElementById("adj_g1").value),

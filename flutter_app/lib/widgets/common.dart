@@ -201,6 +201,87 @@ class WarnBox extends StatelessWidget {
   }
 }
 
+/// Small metric tile used on the Dashboard and History screens - a label,
+/// a big value, and an optional muted sublabel (e.g. "+12 this week").
+class StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final String? sublabel;
+  final Color? valueColor;
+  const StatCard({super.key, required this.label, required this.value, this.sublabel, this.valueColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(),
+              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppColors.muted, letterSpacing: .3)),
+          const SizedBox(height: 8),
+          Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: valueColor ?? AppColors.ink)),
+          if (sublabel != null) ...[
+            const SizedBox(height: 4),
+            Text(sublabel!, style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A single flat progress bar - used for "Overall Quality Score" and similar
+/// single-value measures. For a segmented multi-class bar see [SegmentedBar].
+class SimpleProgressBar extends StatelessWidget {
+  final double pct; // 0..100
+  final Color color;
+  final double height;
+  const SimpleProgressBar({super.key, required this.pct, required this.color, this.height = 10});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height / 2),
+      child: LayoutBuilder(builder: (context, constraints) {
+        return Stack(children: [
+          Container(height: height, color: const Color(0xFFEEECE3)),
+          Container(height: height, width: constraints.maxWidth * (pct.clamp(0, 100) / 100), color: color),
+        ]);
+      }),
+    );
+  }
+}
+
+/// A single bar split into colored segments by percentage - used for the
+/// "Quality Distribution" breakdown across healthy/damaged/rotten/sprouted.
+class SegmentedBar extends StatelessWidget {
+  final List<MapEntry<double, Color>> segments; // (pct 0..100, color)
+  final double height;
+  const SegmentedBar({super.key, required this.segments, this.height = 10});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height / 2),
+      child: Container(
+        height: height,
+        color: const Color(0xFFEEECE3),
+        child: Row(
+          children: segments.where((s) => s.key > 0).map((s) {
+            return Expanded(flex: (s.key * 10).round().clamp(1, 1000), child: Container(color: s.value));
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}
+
 class GradeChip extends StatelessWidget {
   final String grade;
   const GradeChip({super.key, required this.grade});
