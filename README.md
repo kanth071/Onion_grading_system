@@ -34,9 +34,9 @@ flutter_app/       ┘
 
 ## Example output
 
-| Annotated detection | Inspection result |
-|---|---|
-| ![Annotated onion image with color-coded boxes](docs/screenshots/annotated-image.png) | ![Inspection result card showing grade and quality breakdown](docs/screenshots/inspection-result.png) |
+| Annotated detection | Inspection result | PDF report |
+|---|---|---|
+| ![Annotated onion image with color-coded boxes](docs/screenshots/annotated-image.png) | ![Inspection result card showing grade and quality breakdown](docs/screenshots/inspection-result.png) | ![Onion quality inspection PDF report](docs/screenshots/pdf-report.png) |
 
 ## Known limitations
 
