@@ -9,10 +9,13 @@ model.
 
 ## Architecture
 
-```
-frontend/ (PWA)   ┐
-                   ├──►  FastAPI backend  ──►  YOLO inference  ──►  grading & pricing rules  ──►  SQLite history + PDF report
-flutter_app/       ┘
+```mermaid
+flowchart LR
+FE["frontend/ (PWA)"] --> API["FastAPI backend"]
+FL["flutter_app/"] --> API
+API --> YOLO["YOLO inference"]
+YOLO --> GRADE["Grading & pricing rules"]
+GRADE --> STORE["SQLite history + PDF report"]
 ```
 
 - **`frontend/`** — web app / PWA, no build step.
